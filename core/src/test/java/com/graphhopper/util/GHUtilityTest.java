@@ -5,6 +5,9 @@ import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 
 import java.util.Random;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -114,4 +117,19 @@ class GHUtilityTest {
         assertEquals(id, GHUtility.getEdgeFromEdgeKey(fwd));
         assertEquals(id, GHUtility.getEdgeFromEdgeKey(rev));
     }
+
+    // 8) runConcurrently executes all given tasks correctly
+    @Test
+    void runConcurrently_executesAllRunnables() {
+        final int N = 200;
+        AtomicInteger counter = new AtomicInteger(0);
+
+        Stream<Runnable> runnables = IntStream.range(0, N)
+                .mapToObj(i -> (Runnable) () -> counter.incrementAndGet());
+
+        // use 4 threads for concurrency
+        GHUtility.runConcurrently(runnables, 4);
+        assertEquals(N, counter.get(), "all runnables should have been executed exactly once");
+    }
+
 }
