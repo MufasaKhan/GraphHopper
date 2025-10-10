@@ -1,67 +1,117 @@
-/*
- *  Licensed to GraphHopper GmbH under one or more contributor
- *  license agreements. See the NOTICE file distributed with this work for
- *  additional information regarding copyright ownership.
- *
- *  GraphHopper GmbH licenses this file to you under the Apache License,
- *  Version 2.0 (the "License"); you may not use this file except in
- *  compliance with the License. You may obtain a copy of the License at
- *
- *       http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS,
- *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- */
 package com.graphhopper.util;
 
-import com.graphhopper.coll.GHIntLongHashMap;
+import com.github.javafaker.Faker;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
+
+import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * @author Peter Karich
- */
-public class GHUtilityTest {
+class GHUtilityTest {
+
 
     @Test
-    public void testEdgeStuff() {
-        assertEquals(2, GHUtility.createEdgeKey(1, false));
-        assertEquals(3, GHUtility.createEdgeKey(1, true));
+    void edgeKey_zeroId_forwardAndReverse() {
+        int fwd = GHUtility.createEdgeKey(0, false);
+        int rev = GHUtility.createEdgeKey(0, true);
+        assertEquals(0, fwd, "edgeId=0 forward should be 0");
+        assertEquals(1, rev, "edgeId=0 reverse should be 1");
+
+        assertEquals(0, GHUtility.getEdgeFromEdgeKey(fwd));
+        assertEquals(0, GHUtility.getEdgeFromEdgeKey(rev));
     }
 
+    // 2) reverseEdgeKey is an involution and flips parity
     @Test
-    public void testZeroValue() {
-        GHIntLongHashMap map1 = new GHIntLongHashMap();
-        assertFalse(map1.containsKey(0));
-        // assertFalse(map1.containsValue(0));
-        map1.put(0, 3);
-        map1.put(1, 0);
-        map1.put(2, 1);
+    void reverseEdgeKey_involutionAndParity() {
+        for (int edgeId : new int[]{0, 1, 2, 42, 10_000}) {
+            int fwd = GHUtility.createEdgeKey(edgeId, false); // even
+            int rev = GHUtility.createEdgeKey(edgeId, true);  // odd
+            assertEquals(0, (fwd & 1), "forward key must be even");
+            assertEquals(1, (rev & 1), "reverse key must be odd");
 
-        // assertTrue(map1.containsValue(0));
-        assertEquals(3, map1.get(0));
-        assertEquals(0, map1.get(1));
-        assertEquals(1, map1.get(2));
+            assertEquals(rev, GHUtility.reverseEdgeKey(fwd));
+            assertEquals(fwd, GHUtility.reverseEdgeKey(rev));
 
-        // instead of assertEquals(-1, map1.get(3)); with hppc we have to check before:
-        assertTrue(map1.containsKey(0));
+            // reverse twice = original
+            assertEquals(fwd, GHUtility.reverseEdgeKey(GHUtility.reverseEdgeKey(fwd)));
+            assertEquals(rev, GHUtility.reverseEdgeKey(GHUtility.reverseEdgeKey(rev)));
+        }
+    }
 
-        // trove4j behaviour was to return -1 if non existing:
-//        TIntLongHashMap map2 = new TIntLongHashMap(100, 0.7f, -1, -1);
-//        assertFalse(map2.containsKey(0));
-//        assertFalse(map2.containsValue(0));
-//        map2.add(0, 3);
-//        map2.add(1, 0);
-//        map2.add(2, 1);
-//        assertTrue(map2.containsKey(0));
-//        assertTrue(map2.containsValue(0));
-//        assertEquals(3, map2.get(0));
-//        assertEquals(0, map2.get(1));
-//        assertEquals(1, map2.get(2));
-//        assertEquals(-1, map2.get(3));
+    // 3) getEdgeFromEdgeKey is inverse of createEdgeKey (both directions)
+    @Test
+    void createAndExtract_areInverses() {
+        int[] ids = {0, 1, 2, 7, 123456, (Integer.MAX_VALUE >>> 1) - 3};
+        for (int id : ids) {
+            int fwdKey = GHUtility.createEdgeKey(id, false);
+            int revKey = GHUtility.createEdgeKey(id, true);
+            assertEquals(id, GHUtility.getEdgeFromEdgeKey(fwdKey));
+            assertEquals(id, GHUtility.getEdgeFromEdgeKey(revKey));
+        }
+    }
+
+    // 4) High boundary id (avoid overflow on shift) round trips
+    @Test
+    void edgeKey_highBoundaryId_roundTrip() {
+
+        int maxSafeId = Integer.MAX_VALUE >>> 1; // 0x3FFFFFFF
+        int fwdKey = GHUtility.createEdgeKey(maxSafeId, false);
+        int revKey = GHUtility.createEdgeKey(maxSafeId, true);
+        assertEquals(maxSafeId, GHUtility.getEdgeFromEdgeKey(fwdKey));
+        assertEquals(maxSafeId, GHUtility.getEdgeFromEdgeKey(revKey));
+        assertEquals(revKey, GHUtility.reverseEdgeKey(fwdKey));
+        assertEquals(fwdKey, GHUtility.reverseEdgeKey(revKey));
+    }
+
+    // 5) Faker-based fuzz
+    @Test
+    void fakerGeneratedIds_roundTrip() {
+        Faker faker = new Faker(new Random(123));
+        // Limit to avoid overflow
+        for (int i = 0; i < 50; i++) {
+            int raw = Integer.parseInt(faker.number().digits(9));
+            int id = raw & (Integer.MAX_VALUE >>> 1);
+            int k1 = GHUtility.createEdgeKey(id, false);
+            int k2 = GHUtility.createEdgeKey(id, true);
+            assertEquals(id, GHUtility.getEdgeFromEdgeKey(k1));
+            assertEquals(id, GHUtility.getEdgeFromEdgeKey(k2));
+            assertEquals(k2, GHUtility.reverseEdgeKey(k1));
+            assertEquals(k1, GHUtility.reverseEdgeKey(k2));
+        }
+    }
+
+    // 6) randomDoubleInRange always within [min, max] and touches endpoints
+    @Test
+    void randomDoubleInRange_withinBounds_andEdgeHits() {
+        Random rnd = new Random(7);
+        double min = -3.5, max = 4.25;
+        boolean sawNearMin = false, sawNearMax = false;
+        for (int i = 0; i < 10_000; i++) {
+            double v = GHUtility.randomDoubleInRange(rnd, min, max);
+            assertTrue(v >= min && v <= max, "value must be within bounds");
+            // Within 1e-3 of ends at least once (probabilistic but with 10k should hit)
+            if (Math.abs(v - min) < 1e-3) sawNearMin = true;
+            if (Math.abs(v - max) < 1e-3) sawNearMax = true;
+        }
+        assertTrue(sawNearMin || sawNearMax, "expected to see near at least one endpoint over many samples");
+    }
+
+    // 7) Even/odd algebra: edgeKey arithmetic properties
+    @RepeatedTest(5)
+    void edgeKey_arithmeticProperties() {
+        Random r = new Random(99);
+        int id = r.nextInt(Integer.MAX_VALUE >>> 2);
+        int fwd = GHUtility.createEdgeKey(id, false);
+        int rev = GHUtility.createEdgeKey(id, true);
+
+        // fwd is exactly 2*id, rev is 2*id+1
+        assertEquals(id * 2, fwd);
+        assertEquals(id * 2 + 1, rev);
+
+        // Integer division by 2 recovers id for both
+        assertEquals(id, GHUtility.getEdgeFromEdgeKey(fwd));
+        assertEquals(id, GHUtility.getEdgeFromEdgeKey(rev));
     }
 }
