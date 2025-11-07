@@ -1,7 +1,8 @@
+# yaml
 name: Build and Test
-on:
-  push:
-  workflow_dispatch:
+
+on: push
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -9,12 +10,15 @@ jobs:
       fail-fast: false
       matrix:
         java-version: [ 24, 25-ea ]
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with:
           java-version: ${{ matrix.java-version }}
           distribution: temurin
+
       - name: Cache Maven artifacts
         uses: actions/cache@v4
         with:
@@ -22,20 +26,98 @@ jobs:
           key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
             ${{ runner.os }}-maven-
+
       - name: Cache node
         uses: actions/cache@v4
         with:
           path: web-bundle/node
           key: ${{ runner.os }}-node-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
-            ${{ runner.os}}-node-
+            ${{ runner.os }}-node-
+
       - name: Cache node_modules
         uses: actions/cache@v4
         with:
           path: web-bundle/node_modules
           key: ${{ runner.os }}-node-${{ hashFiles('**/pom.xml', '**/package.json') }}
           restore-keys: |
-            ${{ runner.os}}-node_modules-
-      - name: Build ${{ matrix.java-version }}
+            ${{ runner.os }}-node_modules-
+
+      - name: Build & Unit Tests (${{ matrix.java-version }})
         run: mvn -B clean test
 
+      # === Mutation testing (PIT) only once on Java 24 ===
+      - name: Checkout previous commit
+        if: matrix.java-version == '24' && github.event.before != '' && github.event.before != '0000000000000000000000000000000000000000'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.before }}
+          path: prev
+          fetch-depth: 0
+
+      - name: Run PIT on previous commit (HEAD~1)
+        if: matrix.java-version == '24' && github.event.before != '' && github.event.before != '0000000000000000000000000000000000000000'
+        working-directory: prev
+        run: |
+          mvn -B -q -DskipITs=false org.pitest:pitest-maven:mutationCoverage
+
+      - name: Run PIT on current commit (HEAD)
+        if: matrix.java-version == '24'
+        run: mvn -B -q -DskipITs=false org.pitest:pitest-maven:mutationCoverage
+
+      - name: Compare mutation score (XML)
+        if: matrix.java-version == '24'
+        run: |
+          set -e
+
+          get_score() {
+            DIR="$1"
+            FILE=$(find "$DIR" -type f -path "*/target/pit-reports/*/mutations.xml" | head -n1)
+            if [ -z "$FILE" ]; then
+              echo "0"
+              return
+            fi
+
+            python3 - <<'PY' "$FILE"
+  import sys, xml.etree.ElementTree as ET
+  f = sys.argv[1]
+try:
+  root = ET.parse(f).getroot()
+except Exception:
+  print("0")
+  sys.exit(0)
+  mutations = root.findall(".//mutation")
+  total = len(mutations)
+  killed = sum(1 for m in mutations if m.get("status", "").upper() == "KILLED")
+  score = 100.0 * killed / total if total > 0 else 100.0
+  print(f"{score:.4f}")
+  PY
+  }
+  
+  # --- Current score (HEAD)
+  CUR_SCORE=$(get_score ".")
+echo "Current mutation score: $CUR_SCORE"
+
+# --- Previous score (HEAD~1)
+  if [ -d prev ]; then
+  PREV_SCORE=$(get_score "prev")
+echo "Previous mutation score: $PREV_SCORE"
+  
+  awk -v cur="$CUR_SCORE" -v prev="$PREV_SCORE" 'BEGIN {
+  diff = cur - prev
+  printf("Δ score = %.4f (HEAD - HEAD~1)\n", diff)
+  if (diff < 0) exit 1
+}' \
+              || { echo "❌ Mutation score decreased (prev: $PREV_SCORE, current: $CUR_SCORE)"; exit 1; }
+          else
+            echo "No previous commit context; skipping comparison."
+          fi
+
+      - name: Upload PIT reports
+        if: matrix.java-version == '24'
+uses: actions/upload-artifact@v4
+with:
+  name: pit-reports
+  path: |
+    target/pit-reports
+    prev/target/pit-reports
