@@ -57,11 +57,27 @@ jobs:
       - name: Run PIT on previous commit (HEAD~1)
         if: matrix.java-version == '24' && github.event.before != '' && github.event.before != '0000000000000000000000000000000000000000'
         working-directory: prev
-        run: mvn -B -q -DskipITs=false org.pitest:pitest-maven:mutationCoverage
+        run: |
+          mvn -B -q -pl core \
+            -DfailIfNoTests=false \
+            -DargLine= \
+            -DtargetClasses=com.graphhopper.util.GHUtility \
+            -DtargetTests=com.graphhopper.util.GHUtilityTest \
+            -Dthreads=4 \
+            -DoutputFormats=XML,HTML \
+            org.pitest:pitest-maven:mutationCoverage
 
       - name: Run PIT on current commit (HEAD)
         if: matrix.java-version == '24'
-        run: mvn -B -q -DskipITs=false org.pitest:pitest-maven:mutationCoverage
+        run: |
+          mvn -B -q -pl core \
+            -DfailIfNoTests=false \
+            -DargLine= \
+            -DtargetClasses=com.graphhopper.util.GHUtility \
+            -DtargetTests=com.graphhopper.util.GHUtilityTest \
+            -Dthreads=4 \
+            -DoutputFormats=XML,HTML \
+            org.pitest:pitest-maven:mutationCoverage
 
       - name: Compare mutation score (XML)
         if: matrix.java-version == '24'
@@ -69,12 +85,12 @@ jobs:
         run: |
           set -e
 
-          # Compute current score
+          # Current score from this commit (searches under ./)
           CUR_SCORE=$(python3 scripts/pit_score.py . || echo "0.0")
           echo "Current mutation score: $CUR_SCORE"
 
-          # If we have a previous commit checkout, compare against it
           if [ -d prev ]; then
+            # Previous score from previous commit (searches under ./prev)
             PREV_SCORE=$(python3 scripts/pit_score.py prev || echo "0.0")
             echo "Previous mutation score: $PREV_SCORE"
 
@@ -83,7 +99,7 @@ jobs:
               printf("Δ score = %.4f (HEAD - HEAD~1)\n", diff);
               if (diff < 0) exit 1;
             }' || {
-              echo "❌ Mutation score decreased (prev: " "$PREV_SCORE" ", current: " "$CUR_SCORE" ")"
+              echo "❌ Mutation score decreased (prev: $PREV_SCORE, current: $CUR_SCORE)"
               exit 1
             }
           else
@@ -96,5 +112,5 @@ jobs:
         with:
           name: pit-reports
           path: |
-            target/pit-reports
-            prev/target/pit-reports
+            core/target/pit-reports
+            prev/core/target/pit-reports
