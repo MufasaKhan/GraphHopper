@@ -1,4 +1,3 @@
-# yaml
 name: Build and Test
 
 on: push
@@ -58,8 +57,7 @@ jobs:
       - name: Run PIT on previous commit (HEAD~1)
         if: matrix.java-version == '24' && github.event.before != '' && github.event.before != '0000000000000000000000000000000000000000'
         working-directory: prev
-        run: |
-          mvn -B -q -DskipITs=false org.pitest:pitest-maven:mutationCoverage
+        run: mvn -B -q -DskipITs=false org.pitest:pitest-maven:mutationCoverage
 
       - name: Run PIT on current commit (HEAD)
         if: matrix.java-version == '24'
@@ -67,48 +65,48 @@ jobs:
 
       - name: Compare mutation score (XML)
         if: matrix.java-version == '24'
+        shell: bash
         run: |
           set -e
 
           get_score() {
             DIR="$1"
-            FILE=$(find "$DIR" -type f -path "*/target/pit-reports/*/mutations.xml" | head -n1)
+            FILE=$(find "$DIR" -type f -path "*/target/pit-reports/*/mutations.xml" | sort -r | head -n1)
             if [ -z "$FILE" ]; then
-              echo "0"
+              echo "0.0"
               return
             fi
 
-            python3 - <<'PY' "$FILE"
-  import sys, xml.etree.ElementTree as ET
+            python3 -c "import sys, xml.etree.ElementTree as ET;
   f = sys.argv[1]
 try:
   root = ET.parse(f).getroot()
 except Exception:
-  print("0")
-  sys.exit(0)
-  mutations = root.findall(".//mutation")
-  total = len(mutations)
-  killed = sum(1 for m in mutations if m.get("status", "").upper() == "KILLED")
-  score = 100.0 * killed / total if total > 0 else 100.0
-  print(f"{score:.4f}")
-  PY
+  print('0.0'); raise SystemExit(0)
+  muts = root.findall('.//mutation')
+  total = len(muts)
+  killed = sum(1 for m in muts if (m.get('status','').upper() == 'KILLED'))
+  score = 100.0 if total == 0 else 100.0 * killed / total
+  print(f'{score:.4f}')" "$FILE"
   }
   
-  # --- Current score (HEAD)
+  # Current score (HEAD)
   CUR_SCORE=$(get_score ".")
 echo "Current mutation score: $CUR_SCORE"
 
-# --- Previous score (HEAD~1)
+# Previous score (HEAD~1), if available
   if [ -d prev ]; then
   PREV_SCORE=$(get_score "prev")
 echo "Previous mutation score: $PREV_SCORE"
   
   awk -v cur="$CUR_SCORE" -v prev="$PREV_SCORE" 'BEGIN {
-  diff = cur - prev
-  printf("Δ score = %.4f (HEAD - HEAD~1)\n", diff)
-  if (diff < 0) exit 1
-}' \
-              || { echo "❌ Mutation score decreased (prev: $PREV_SCORE, current: $CUR_SCORE)"; exit 1; }
+  diff = cur - prev;
+  printf("Δ score = %.4f (HEAD - HEAD~1)\n", diff);
+  if (diff < 0) exit 1;
+}' || {
+              echo "❌ Mutation score decreased (prev: $PREV_SCORE, current: $CUR_SCORE)"
+              exit 1
+            }
           else
             echo "No previous commit context; skipping comparison."
           fi
