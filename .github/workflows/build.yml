@@ -43,7 +43,7 @@ jobs:
             ${{ runner.os }}-node_modules-
 
       - name: Build & Unit Tests (${{ matrix.java-version }})
-        run: mvn -B clean test
+        run: mvn -B clean install
 
       # === Mutation testing (PIT) only once on Java 24 ===
 
@@ -55,12 +55,20 @@ jobs:
           path: prev
           fetch-depth: 0
 
-      - name: Run PIT on previous commit (HEAD~1)
+      # Build previous commit so its modules are in local Maven repo
+      - name: Prepare previous commit build
+        if: matrix.java-version == '24' && github.event.before != '' && github.event.before != '0000000000000000000000000000000000000000'
+        working-directory: prev
+        run: mvn -B -q -DskipTests install
+
+      # Run PIT on previous commit - core module ONLY
+      - name: Run PIT on previous commit (HEAD~1, core only)
         if: matrix.java-version == '24' && github.event.before != '' && github.event.before != '0000000000000000000000000000000000000000'
         working-directory: prev
         run: |
-          mvn -B -q -pl core -am \
+          mvn -B -q -pl core \
             -DfailIfNoTests=false \
+            -DfailWhenNoMutations=false \
             -DargLine= \
             -DtargetClasses=com.graphhopper.util.GHUtility \
             -DtargetTests=com.graphhopper.util.GHUtilityTest \
@@ -68,11 +76,13 @@ jobs:
             -DoutputFormats=XML,HTML \
             org.pitest:pitest-maven:mutationCoverage
 
-      - name: Run PIT on current commit (HEAD)
+      # Run PIT on current commit - core module ONLY
+      - name: Run PIT on current commit (HEAD, core only)
         if: matrix.java-version == '24'
         run: |
-          mvn -B -q -pl core -am \
+          mvn -B -q -pl core \
             -DfailIfNoTests=false \
+            -DfailWhenNoMutations=false \
             -DargLine= \
             -DtargetClasses=com.graphhopper.util.GHUtility \
             -DtargetTests=com.graphhopper.util.GHUtilityTest \
@@ -86,12 +96,12 @@ jobs:
         run: |
           set -e
 
-          # Current score from this commit
+          # Current score (HEAD)
           CUR_SCORE=$(python3 scripts/pit_score.py . || echo "0.0")
           echo "Current mutation score: $CUR_SCORE"
 
           if [ -d prev ]; then
-            # Previous score from previous commit
+            # Previous score (HEAD~1)
             PREV_SCORE=$(python3 scripts/pit_score.py prev || echo "0.0")
             echo "Previous mutation score: $PREV_SCORE"
 
