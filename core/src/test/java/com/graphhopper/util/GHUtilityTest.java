@@ -11,7 +11,6 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.*;
 
-@Disabled("GHUtility is being refactored, re-enable when done")
 class GHUtilityTest {
 
     @Test
