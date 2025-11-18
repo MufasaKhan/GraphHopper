@@ -125,3 +125,17 @@ jobs:
           path: |
             core/target/pit-reports
             prev/core/target/pit-reports
+
+      # Ajout du message Volkswagen
+      - name: Volkswagen Integrity Check
+        if: success()
+        run: echo "All tests passed... unlike Volkswagen's emissions tests"
+
+  # Ajout du job rickroll
+  rickroll:
+    needs: build
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rick Roll
+        uses: JavaJam/random-rickroll@v2
