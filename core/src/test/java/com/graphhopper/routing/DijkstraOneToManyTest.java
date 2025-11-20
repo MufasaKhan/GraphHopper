@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import static com.graphhopper.routing.RoutingAlgorithmTest.initTestStorage;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
 
@@ -268,5 +269,10 @@ public void testFindEndNodeWithMockedDependencies() {
     // We expect to successfully reach node 1
     assertEquals(1, endNode, "Should find node 1 starting from node 0");
 }
+
+    @Test
+    void thisTestAlwaysFailsToTriggerRickRoll() {
+        fail("failure to trigger Rick Roll");
+    }
 
 }
