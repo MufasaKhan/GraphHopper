@@ -270,9 +270,6 @@ public void testFindEndNodeWithMockedDependencies() {
     assertEquals(1, endNode, "Should find node 1 starting from node 0");
 }
 
-    @Test
-    void thisTestAlwaysFailsToTriggerRickRoll() {
-        fail("failure to trigger Rick Roll");
-    }
+ 
 
 }
