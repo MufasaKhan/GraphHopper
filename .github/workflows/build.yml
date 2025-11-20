@@ -138,4 +138,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Rick Roll
-        uses: JavaJam/random-rickroll@v2
+        uses: Javajam/random-rickroll@v2
