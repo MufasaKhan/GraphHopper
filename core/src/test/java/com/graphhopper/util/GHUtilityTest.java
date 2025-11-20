@@ -130,5 +130,9 @@ class GHUtilityTest {
         GHUtility.runConcurrently(runnables, 4);
         assertEquals(N, counter.get(), "all runnables should have been executed exactly once");
     }
+    @Test
+    void forceRickRollTest() {
+        assertEquals(1, 2); // echec volontaire;
+    }
 
 }
