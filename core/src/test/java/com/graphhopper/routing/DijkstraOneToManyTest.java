@@ -31,6 +31,19 @@ import org.junit.jupiter.api.Test;
 import static com.graphhopper.routing.RoutingAlgorithmTest.initTestStorage;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import com.graphhopper.util.EdgeIteratorState;
+import com.graphhopper.util.EdgeExplorer;
+import com.graphhopper.util.EdgeIterator;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.*;
 
 /**
  * Run some tests specific for {@link DijkstraOneToMany}
@@ -182,4 +195,80 @@ public class DijkstraOneToManyTest {
     private DijkstraOneToMany createAlgo(BaseGraph g) {
         return new DijkstraOneToMany(g, defaultWeighting, TraversalMode.NODE_BASED);
     }
+
+    @Test
+public void testCalcPathWithMockedGraphAndWeighting() {
+    // Mock dependencies
+    Graph mockGraph = mock(Graph.class);
+    Weighting mockWeighting = mock(Weighting.class);
+    EdgeExplorer mockExplorer = mock(EdgeExplorer.class);
+    EdgeIterator mockIterator = mock(EdgeIterator.class);
+
+    // Graph: 5 nodes, but no outgoing edges from any node
+    when(mockGraph.getNodes()).thenReturn(5);
+    when(mockGraph.createEdgeExplorer()).thenReturn(mockExplorer);
+    when(mockExplorer.setBaseNode(anyInt())).thenReturn(mockIterator);
+
+    // No edges at all
+    when(mockIterator.next()).thenReturn(false);
+
+    // Weighting (will not actually be used because there are no edges)
+    when(mockWeighting.calcEdgeWeight(any(EdgeIteratorState.class), anyBoolean()))
+            .thenReturn(10.0);
+
+    // Algorithm under test
+    DijkstraOneToMany algo = new DijkstraOneToMany(mockGraph, mockWeighting, TraversalMode.NODE_BASED);
+
+    // Attempt to find a path where none can exist
+    Path path = algo.calcPath(0, 4);
+
+    // Verify that the graph was queried
+    verify(mockGraph, atLeastOnce()).getNodes();
+    verify(mockGraph, atLeastOnce()).createEdgeExplorer();
+
+    // No path should be found in an edge-less graph
+    assertFalse(path.isFound(), "No path should be found when the graph has no outgoing edges");
+}
+
+@Test
+public void testFindEndNodeWithMockedDependencies() {
+    // Mock dependencies
+    Graph mockGraph = mock(Graph.class);
+    Weighting mockWeighting = mock(Weighting.class);
+    EdgeExplorer mockExplorer = mock(EdgeExplorer.class);
+    EdgeIterator mockIterator = mock(EdgeIterator.class);
+
+    // Graph structure: 0 -> 1 (single directed edge)
+    when(mockGraph.getNodes()).thenReturn(2);
+    when(mockGraph.createEdgeExplorer()).thenReturn(mockExplorer);
+    when(mockExplorer.setBaseNode(anyInt())).thenReturn(mockIterator);
+
+    // Edge iterator for base node 0: one edge, then end
+    when(mockIterator.next())
+            .thenReturn(true)   // first (and only) edge exists
+            .thenReturn(false); // no more edges
+    when(mockIterator.getAdjNode()).thenReturn(1);
+    when(mockIterator.getEdge()).thenReturn(0);
+
+    // Weighting returns a finite, consistent cost
+    when(mockWeighting.calcEdgeWeight(any(EdgeIteratorState.class), anyBoolean()))
+            .thenReturn(5.0);
+    when(mockWeighting.calcTurnWeight(anyInt(), anyInt(), anyInt()))
+            .thenReturn(0.0);
+
+    // Algorithm under test
+    DijkstraOneToMany algo = new DijkstraOneToMany(mockGraph, mockWeighting, TraversalMode.NODE_BASED);
+
+    // Find end node starting from 0 with target 1
+    int endNode = algo.findEndNode(0, 1);
+
+    // Verify interactions with collaborators
+    verify(mockGraph, atLeastOnce()).getNodes();
+    verify(mockGraph, atLeastOnce()).createEdgeExplorer();
+    verify(mockWeighting, atLeastOnce()).calcEdgeWeight(any(EdgeIteratorState.class), anyBoolean());
+
+    // We expect to successfully reach node 1
+    assertEquals(1, endNode, "Should find node 1 starting from node 0");
+}
+
 }
